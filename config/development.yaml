@@ -1,0 +1,10 @@
+nexus:
+  log_level: DEBUG
+  log_format: console
+
+state:
+  backend: memory
+
+resource:
+  gpu:
+    enabled: false

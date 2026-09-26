@@ -1,0 +1,127 @@
+nexus:
+  name: NEXUS
+  mode: development
+  log_level: INFO
+  log_format: console
+
+bus:
+  publish_endpoint: "ipc:///tmp/nexus-events.sock"
+  hwm: 1000
+  recv_timeout_ms: 100
+
+state:
+  backend: memory
+  redis_url: "redis://localhost:6379/0"
+  key_prefix: "nexus:"
+  default_ttl_seconds: 300
+
+resource:
+  gpu:
+    enabled: false
+    total_vram_mb: 4096
+    reserve_mb: 512
+    eviction_idle_seconds: 5
+    lease_timeout_seconds: 30
+  priority:
+    vision: 1
+    voice: 2
+    brain: 3
+    action: 4
+
+metrics:
+  enabled: true
+  window_size: 100
+
+process:
+  shutdown_timeout_seconds: 5
+  restart_on_crash: true
+  max_restart_attempts: 3
+
+vision:
+  camera:
+    device: 0
+    width: 640
+    height: 480
+    fps: 30
+    buffer_size: 1
+  hand_tracking:
+    model_path: data/models/hand_landmarker.task
+    max_hands: 2
+    min_detection_confidence: 0.6
+    min_presence_confidence: 0.6
+    min_tracking_confidence: 0.5
+    running_mode: VIDEO
+  pose_tracking:
+    enabled: true
+    model_path: data/models/pose_landmarker_lite.task
+    min_detection_confidence: 0.5
+    min_presence_confidence: 0.5
+    min_tracking_confidence: 0.5
+
+gesture:
+  enabled: true
+  engine: rule_based
+  smoothing_window: 5
+  min_stable_frames: 2
+  cooldown_ms: 400
+  min_confidence: 0.6
+  
+  # Threshold longgar (kurangi sensitivitas noise)
+  pinch_distance_threshold: 0.40
+  extended_curvature_max: 0.30
+  folded_curvature_min: 0.45
+  half_folded_curvature_min: 0.30
+  min_finger_spread_open: 0.70
+  
+  # Swipe ketat (hindari false positive)
+  swipe_min_distance: 0.20
+  swipe_max_duration_ms: 500
+  swipe_history_size: 15
+  swipe_min_velocity: 0.6
+  
+  # Body-frame thresholds
+  thumb_curvature_max: 0.3
+  thumb_others_folded_min: 0.4
+
+output:
+  terminal:
+    enabled: true
+    color: true
+    verbosity: normal           # quiet | normal | verbose
+    show_gesture: true
+    show_voice: true
+    show_intent: true
+    show_command: true
+  tts:
+    enabled: false              # aktifkan setelah Phase 5
+    provider: piper
+    voice: en_US-lessac-medium
+    speak_on:
+      - voice_response
+      - error
+      - confirmation
+  notification:
+    enabled: true
+    provider: notify-send
+    on:
+      - error
+      - warning
+  sound:
+    enabled: false
+    on:
+      - gesture_confirmed
+      - wake_word
+
+input:
+  hotkeys:
+    enabled: false              # aktifkan setelah CLI siap
+    bindings:
+      trigger_voice: "ctrl+alt+n"
+      screenshot: "ctrl+alt+s"
+      pause: "ctrl+alt+p"
+      resume: "ctrl+alt+r"
+      quit: "ctrl+alt+q"
+
+api:
+  host: 127.0.0.1
+  port: 8000
