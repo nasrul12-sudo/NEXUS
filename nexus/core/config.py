@@ -195,6 +195,40 @@ class APIConfig(BaseModel):
 
 # ---------- Root config ----------
 
+class ModeConfig(BaseModel):
+    listening_timeout_s: float = 30.0
+    processing_timeout_s: float = 5.0
+    confirming_timeout_s: float = 15.0
+    wake_gesture_hold_s: float = 1.0
+    action_gesture_hold_s: float = 0.5
+    wake_gesture_hands: int = 2
+
+class Gestureonfig(BaseModel):
+    enabled: bool = True
+    engine: Literal["rule_based", "ml"] = "rule_based"
+    smoothing_window: int = 4
+    min_stable_frames: int = 2 
+    cooldown_ms: int = 300
+    min_confidence: float = 0.5
+
+    hold_duration_s: float = 0.5
+    lock_frames: int = 5
+
+    pinch_distance_threshold: float = 0.35
+    extended_curvature_max: float = 0.25
+    folded_curvature_min: float = 0.40
+    half_folded_curvature_min: float = 0.25
+    min_finger_spread_open: float = 0.75
+
+    thumb_curvature_max: float = 0.20
+    thumb_others_folded_min: float = 0.50
+
+    swipe_min_distance: float = 0.08
+    swipe_max_duration_ms: int = 800
+    swipe_history_size: int = 20
+    swipe_min_velocity: float = 0.15
+
+
 class NexusConfig(BaseModel):
     """Root config.
 
@@ -215,7 +249,8 @@ class NexusConfig(BaseModel):
     output: OutputConfig = Field(default_factory=OutputConfig)
     input: InputConfig = Field(default_factory=InputConfig)
     api: APIConfig = Field(default_factory=APIConfig)
-
+    mode: ModeConfig = Field(default_factory=ModeConfig)
+    gesture: GestureConfig = Field(default_factory=GestureConfig)
 
 # ---------- Loader ----------
 

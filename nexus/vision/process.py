@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 
+from nexus.brain.mode_manager import NexusMode, get_mode_manager
 from nexus.core.config import get_config
 from nexus.core.events import EventType
 from nexus.core.logging import get_logger
@@ -11,6 +12,8 @@ from nexus.core.process import NexusProcess
 from nexus.vision.camera import CameraProvider, OpenCVCameraProvider
 from nexus.vision.context import BodyFrameExtractor
 from nexus.vision.gesture import GestureEngine, make_gesture_event
+from nexus.vision.gesture.rules import classify_static
+from nexus.vision.gesture.gestures import Gesture
 from nexus.vision.hand_tracking import HandTracker, MediaPipeHandTracker
 from nexus.vision.pose import MediaPipePoseTracker, PoseTracker
 
@@ -38,14 +41,21 @@ class VisionProcess(NexusProcess):
         self._gesture_engine = gesture_engine
 
         self._body_frame_extractor = BodyFrameExtractor()
+        self._mode_manager = get_mode_manager()
 
         self._had_hand_last_frame = False
         self._fps_window: list[float] = []
         self._frames_processed = 0
         self._frames_dropped = 0
         self._gestures_detected = 0
+        self._wake_gesture_frames = 0
         self._metrics = get_metrics()
         self._prev_handedness: set[str] = set()
+
+        self._pose_frame_counter = 0
+        self._pose_skip_frames = 3
+        self._pose_resize = (320, 240)
+        self._last_body_frame = None
 
     def setup(self) -> None:
         cfg = get_config()
@@ -95,12 +105,15 @@ class VisionProcess(NexusProcess):
             self._gesture_engine = GestureEngine()
         self._gesture_engine.setup()
 
+        self._mode_manager.start(fps=self._camera.fps)
+
         self.log.info(
             "vision.setup_done",
             camera_fps=self._camera.fps,
             max_hands=self._hand_tracker.max_hands,
             pose_enabled=self._pose_tracker is not None,
             gesture_enabled=cfg.gesture.enabled,
+            mode_manager_started=True,
         )
 
     def run(self) -> None:
@@ -176,6 +189,7 @@ class VisionProcess(NexusProcess):
             self._hand_tracker.close()
         if self._pose_tracker is not None:
             self._pose_tracker.close()
+        self._mode_manager.stop()
         self.log.info(
             "vision.teardown",
             frames_processed=self._frames_processed,
@@ -190,29 +204,64 @@ class VisionProcess(NexusProcess):
         if self._gesture_engine is None:
             return
 
-        # Track handedness yang terdeteksi frame ini
+        if self._mode_manager.mode == NexusMode.IDLE:
+            if self._check_wake_gesture(hands, timestamp):
+                return
+
+        # Track handedness yang hilang
         current_handedness = {h.handedness for h in hands}
+        lost = self._prev_handedness - current_handedness
+        for h in lost:
+            self._gesture_engine.process_hand_lost(timestamp, handedness=h)
+            log.debug("vision.hand_lost_individual", handedness=h)
 
-        # Cek tangan yang hilang sejak frame sebelumnya
-        if hasattr(self, '_prev_handedness'):
-            lost = self._prev_handedness - current_handedness
-            for h in lost:
-                self._gesture_engine.process_hand_lost(timestamp, handedness=h)
-                log.debug("vision.hand_lost_individual", handedness=h)
-
-        # Process tangan yang ada
+        # process tangan yang ada 
+        current_mode = self._mode_manager.mode
         for hand in hands:
             try:
                 smoothed_list = self._gesture_engine.process_hand(hand, timestamp)
             except Exception:
                 self.log.exception("vision.gesture_error")
                 continue
-
             for smoothed in smoothed_list:
                 self._gestures_detected += 1
-                self.publish(make_gesture_event(smoothed, hand, body_frame))
+                self.publish(make_gesture_event(smoothed, hand, body_frame, mode=current_mode.value,))
 
         self._prev_handedness = current_handedness
+
+    def _check_wake_gesture(self, hands, timestamp: float) -> bool:
+        open_palm_count = 0
+        for hand in hands:
+            try:
+                gesture, confidence = classify_static(
+                    hand,
+                    pinch_threshold=self._gesture_engine._pinch_threshold,
+                    extended_curvature_max=self._gesture_engine._extended_curvature_max,
+                    folded_curvature_min=self._gesture_engine._folded_curvature_min,
+                    half_folded_curvature_min=self._gesture_engine._half_folded_curvature_min,
+                    min_finger_spread_open=self._gesture_engine._min_finger_spread_open,
+                )
+                if gesture == Gesture.OPEN_PALM and confidence > 0.5:
+                    open_palm_count += 1
+            except Exception:
+                continue
+
+        if open_palm_count >= 2:
+            should_wake = self._mode_manager.should_process_gesture(
+                gesture_name="OPEN_PALM",
+                hand_count=2,
+                timestamp=timestamp,
+            )
+
+            if self._mode_manager.mode == NexusMode.LISTENING:
+                log.info(
+                    "vision.wake_gesture_confirmed",
+                    hand_count=open_palm_count
+                )
+                return True
+        else:
+            self._mode_manager._wake_gesture_frames = 0
+        return False
 
     def _publish_landmarks(self, hands, timestamp, frame_index) -> None:
         payload = {
@@ -238,6 +287,7 @@ class VisionProcess(NexusProcess):
                 "frames_processed": self._frames_processed,
                 "frames_dropped": self._frames_dropped,
                 "gestures_detected": self._gestures_detected,
+                "mode": self._mode_manager.mode.value,
             },
         )
 

@@ -36,6 +36,8 @@ class GestureSmoother:
         min_stable: int = 2,
         cooldown_ms: int = 300,
         min_confidence: float = 0.5,
+        hold_duration_s: float = 0.5,
+        lock_frames: int = 5,
     ):
         if min_stable > window:
             raise ValueError("min_stable tidak boleh lebih dari window")
@@ -50,6 +52,10 @@ class GestureSmoother:
         self._last_publish_ts: float = 0.0
         self._current_streak_start: float | None = None
         self._consecutive_unknown: int = 0  # hitung UNKNOWN berturut-turut
+
+        self._hold_duration_s = hold_duration_s
+        self._lock_frames = lock_frames
+        self._frames_since_publish = 0 
 
     def update(
         self,
@@ -116,9 +122,32 @@ class GestureSmoother:
             if time_since_publish < self._cooldown_s:
                 return None
 
+        # Hold requirement
+        streak_duration_s = timestamp - self._current_streak_start
+        if streak_duration_s < self._hold_duration_s:
+            return None
+
+        # Lock Requirement
+        self._frames_since_publish += 1
+        if (
+            self._last_published != Gesture.UNKNOWN
+            and confirmed_gesture != self._last_published
+            and self._frames_since_publish < self._lock_frames
+        ):
+            return None 
+
+        # Cooldown
+        if confirmed_gesture == self._last_published:
+            time_since_publish = timestamp - self._last_publish_ts
+            if time_since_publish < self._cooldown_s:
+                return None
+
         # Confirmed!
+        duration_ms = streak_duration_s < 1000
+
         self._last_published = confirmed_gesture
         self._last_publish_ts = timestamp
+        self._frames_since_publish = 0
 
         return SmoothedGesture(
             gesture=confirmed_gesture,
@@ -137,3 +166,8 @@ class GestureSmoother:
         """Reset hanya last published."""
         self._last_published = Gesture.UNKNOWN
         self._last_publish_ts = 0.0
+        self._frames_since_publish = 0
+
+    def full_reset(self) -> None:
+        self.reset()
+        self.reset_last_published()

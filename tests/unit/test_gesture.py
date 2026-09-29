@@ -208,7 +208,7 @@ def test_classify_pinch():
 # ---------- Tests: smoother ----------
 
 def test_smoother_stable():
-    smoother = GestureSmoother(window=5, min_stable=3, cooldown_ms=100, min_confidence=0.5)
+    smoother = GestureSmoother(window=5, min_stable=3, cooldown_ms=100, min_confidence=0.5, hold_duration_s=0.0)
     now = time.time()
     results = []
     for i in range(5):
@@ -229,7 +229,7 @@ def test_smoother_unstable():
 
 
 def test_smoother_cooldown():
-    smoother = GestureSmoother(window=5, min_stable=3, cooldown_ms=500, min_confidence=0.5)
+    smoother = GestureSmoother(window=5, min_stable=3, cooldown_ms=500, min_confidence=0.5, hold_duration_s=0.0)
     now = time.time()
     for i in range(3):
         r = smoother.update(Gesture.PINCH, 0.9, now + i * 0.033)
